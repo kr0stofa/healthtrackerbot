@@ -20,6 +20,18 @@ CONFIRM_FREETEXT_SYMPTOMS = 18
 EXIT_CS_MENU = "EXIT"
 symptom_report_db = {}
 
+def direct_to_privatechat(update, context):
+    chat_ID = update.effective_chat.id
+    chat_type = update.effective_chat.type
+    user = update.effective_user
+    firstname = user.first_name
+    print("CHAT TYPE", chat_type)
+    if not chat_type == "private":
+        msg = "Hi, {}!\nPlease start a private conversation with me to continue".format(firstname) 
+        context.bot.send_message(chat_id=chat_ID, text=msg)
+        return True
+    return False
+
 # Echo sent message
 def echo(update, context):
     context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
@@ -27,21 +39,21 @@ def echo(update, context):
 def start_message(update, context):
     chat_ID = update.effective_chat.id
     user = update.effective_user
-    chat_type = update.effective_chat.type
-    print("CHAT TYPE", chat_type)
     firstname = user.first_name
-    if not chat_type == "private":
-        msg = "Hi, {}!\nPlease start a private conversation with me to continue".format(firstname) 
-    else: 
+    diverted = direct_to_privatechat(update, context)
+    if not diverted:
         msg = "Hello, {}!\nPlease use '/report' to provide your current health status :)".format(firstname) 
     context.bot.send_message(chat_id=chat_ID, text=msg)
 
 status_reply_buttons = ['Yes','No']
 def report_status(update, context):
-    status_buttonlist = [status_reply_buttons]
-    status_reply = ReplyKeyboardMarkup(status_buttonlist,one_time_keyboard=True)
-    update.message.reply_text("How are you today? Feeling healthy?", reply_markup=status_reply)
-    return REPORT_STATUS
+    diverted = direct_to_privatechat(update, context)
+    if not diverted:
+        status_buttonlist = [status_reply_buttons]
+        status_reply = ReplyKeyboardMarkup(status_buttonlist,one_time_keyboard=True)
+        update.message.reply_text("How are you today? Feeling healthy?", reply_markup=status_reply)
+        return REPORT_STATUS
+    return
 
 def add_to_symptom_str(update_txt, uid):
     global symptom_report_db
