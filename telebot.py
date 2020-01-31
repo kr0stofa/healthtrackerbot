@@ -13,7 +13,7 @@ botToken = '806960355:AAHWm-LvEOI7ahMfL_Ie95DH1sN2nBe505E'
 status_response = ""
 REPORT_STATUS = 1
 REPORT_SYMPTOMS = 2
-CONVERSATION_END = 3
+CONVERSATION_END = -1
 HANDLE_CS_MENU = 11
 FREETEXT_SYMPTOMS = 17
 CONFIRM_FREETEXT_SYMPTOMS = 18
@@ -53,6 +53,14 @@ def get_symptom_str(uid):
     freetext = user_entry["freetext"]
     return freetext
 
+
+def wipe_freetext_symptoms(uid):
+    global symptom_report_db
+    if not uid in symptom_report_db:
+        return False
+    symptom_report_db[uid]["freetext"] = ""
+    return
+
 def get_uid(update):
     return update.effective_user.username
 
@@ -64,6 +72,7 @@ def report_symtoms_freetext_instr(update,context):
         text="Please describe any additional symptoms. If there are none, state 'none' or 'NA'. At the end of it, please type '/done'"
         )
     return FREETEXT_SYMPTOMS
+
 
 report_count = 0
 def report_symptoms_freetext(update, context):
@@ -112,7 +121,22 @@ def done_reporting_symptoms_freetext(update, context):
     return CONFIRM_FREETEXT_SYMPTOMS
 
 def confirm_freetext_symptoms(update, context):
-    return ConversationHandler.end
+    print("CONFIRMING FREETEXT SYMPTOMS")
+    cb_query = update.callback_query
+    button_press = cb_query.data
+    if button_press == "yes":
+        context.bot.send_message(
+            chat_id = update.effective_chat.id,
+            text = "Got it. If there are any changes to your condition, notify us as soon as possible. Please take care of yourself and get well soon!"
+        )
+        return CONVERSATION_END
+    else:
+        user_ID = context.effective_user.id
+        wipe_freetext_symptoms(user_ID)
+        return report_symtoms_freetext_instr(update, context)
+
+
+
 
 #### SYMPTOM REPORTING CALLBACKS ####
 
@@ -185,7 +209,6 @@ def report_common_symptoms(update, context):
     return HANDLE_CS_MENU
 
 def handle_symptom_buttonpress(update, context):
-    print("HANDLE SYMPTOM BUTTON")
     user_ID = get_uid(update)
     cb_query = update.callback_query
     og_msg = cb_query.message
@@ -265,14 +288,17 @@ def init_handlers(dis):
 
     # 
     status_report_handler = ConversationHandler(
-        entry_points=[CommandHandler('report', report_status)],
+        entry_points=[
+            CommandHandler('report', report_status),
+            done_handler
+            ],
         states={
                 REPORT_STATUS: [MessageHandler(Filters.text(status_reply_buttons), report_status_response)],
                 REPORT_SYMPTOMS: [CommandHandler('report_common',report_common_symptoms)],   
                 HANDLE_CS_MENU: [symptom_button_handler],
                 FREETEXT_SYMPTOMS: [MessageHandler((~Filters.command), report_symptoms_freetext)],
                 CONFIRM_FREETEXT_SYMPTOMS: [CallbackQueryHandler(confirm_freetext_symptoms)],
-                ConversationHandler.end: [MessageHandler(Filters.all, cancel)]
+                CONVERSATION_END: [MessageHandler(Filters.all, cancel)]
             },
         fallbacks=[
             CommandHandler('cancel', cancel)
@@ -282,8 +308,6 @@ def init_handlers(dis):
 
     dis.add_handler(start_handler)
     dis.add_handler(status_report_handler)
-    dis.add_handler(symptom_button_handler)
-    dis.add_handler(done_handler)
 
     return dis
 
