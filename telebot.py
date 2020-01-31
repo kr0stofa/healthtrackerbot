@@ -141,9 +141,15 @@ def confirm_freetext_symptoms(update, context):
         )
         return CONVERSATION_END
     else:
-        user_ID = context.effective_user.id
+        user_ID = get_uid(update)
         wipe_freetext_symptoms(user_ID)
+        print("RESETTED USER STUFF")
+        context.bot.send_message(
+            chat_id = update.effective_chat.id,
+            text = "Okay, I'll forget whatever was said earlier."
+        )
         next_state = report_symtoms_freetext_instr(update, context)
+        print("CONFIRM NO")
         return next_state
 
 
