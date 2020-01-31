@@ -24,11 +24,16 @@ symptom_report_db = {}
 def echo(update, context):
     context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
 
-def start(update, context):
+def start_message(update, context):
     chat_ID = update.effective_chat.id
     user = update.effective_user
+    chat_type = update.effective_chat.type
+    print("CHAT TYPE", chat_type)
     firstname = user.first_name
-    msg = "Hello, {}!\nPlease use '/report' to provide your current health status :)".format(firstname) 
+    if not chat_type == "private":
+        msg = "Hi, {}!\nPlease start a private conversation with me to continue".format(firstname) 
+    else: 
+        msg = "Hello, {}!\nPlease use '/report' to provide your current health status :)".format(firstname) 
     context.bot.send_message(chat_id=chat_ID, text=msg)
 
 status_reply_buttons = ['Yes','No']
@@ -56,8 +61,6 @@ def get_symptom_str(uid):
 
 def wipe_freetext_symptoms(uid):
     global symptom_report_db
-    if not uid in symptom_report_db:
-        return False
     symptom_report_db[uid]["freetext"] = ""
     return
 
@@ -124,6 +127,13 @@ def confirm_freetext_symptoms(update, context):
     print("CONFIRMING FREETEXT SYMPTOMS")
     cb_query = update.callback_query
     button_press = cb_query.data
+    og_msg = cb_query.message
+    # Remove keyboard from old msg
+    context.bot.edit_message_text(
+        chat_id = og_msg.chat_id,
+        message_id = og_msg.message_id,
+        text = og_msg.text
+        )
     if button_press == "yes":
         context.bot.send_message(
             chat_id = update.effective_chat.id,
@@ -133,9 +143,8 @@ def confirm_freetext_symptoms(update, context):
     else:
         user_ID = context.effective_user.id
         wipe_freetext_symptoms(user_ID)
-        return report_symtoms_freetext_instr(update, context)
-
-
+        next_state = report_symtoms_freetext_instr(update, context)
+        return next_state
 
 
 #### SYMPTOM REPORTING CALLBACKS ####
@@ -240,7 +249,6 @@ def handle_symptom_buttonpress(update, context):
     
     return HANDLE_CS_MENU
 
-
 def create_symptom_entry(uid):
     global symptom_report_db
     if not uid in symptom_report_db:
@@ -254,10 +262,17 @@ def report_status_response(update, context):
     update_text = update.message.text
     curr_chat = update.effective_chat
     chat_type = curr_chat.type
-    chat_ID = curr_chat.id
+    
     healthy_flag = (update_text == "Yes")
     print("GOT STATUS RESPONSE. HEALTHY?", healthy_flag)
+    chat_ID = curr_chat.id
+    print("CHAT TYPE", chat_type)
     remove_keyboard = ReplyKeyboardRemove()
+
+    if not chat_type == "private":
+        # initiate_private_convo()
+        return CONVERSATION_END
+
     if healthy_flag:
         context.bot.send_message(
             chat_id=chat_ID,
@@ -282,7 +297,7 @@ def cancel(update, context):
 # Initalizes the handlers for ths dispatcher
 def init_handlers(dis):
     global status_response
-    start_handler = CommandHandler('start', start)
+    start_handler = CommandHandler('start', start_message)
     done_handler = CommandHandler('done', done_reporting_symptoms_freetext)
     symptom_button_handler = CallbackQueryHandler(handle_symptom_buttonpress)
 
