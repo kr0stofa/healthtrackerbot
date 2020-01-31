@@ -1,9 +1,10 @@
 from telegram.ext import CommandHandler, ConversationHandler, CallbackQueryHandler, Filters, MessageHandler, Updater
 from telegram.ext import CallbackQueryHandler
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+from supp_classes import Group, Member
 import logging
 
-log = False
+log = 1
 
 if log: logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -17,11 +18,39 @@ CONVERSATION_END = -1
 HANDLE_CS_MENU = 11
 FREETEXT_SYMPTOMS = 17
 CONFIRM_FREETEXT_SYMPTOMS = 18
-EXIT_CS_MENU = "EXIT"
+HANDLE_MGR_MENU = 21
+CREATE_GROUP = 22
+REVIEW_GROUPS = 23
+RECV_GROUP_NAME = 24
+EXIT_MENU = "EXIT"
 symptom_report_db = {}
+ADMINS_INFO = {}
+
+# GENERAL FUNCTIONS
+def get_uid(update):
+    return update.effective_user.username
+
+def get_chat_id(update):
+    return update.effective_chat.id
+
+def make_menu(blist):
+    button_list = []
+    for b_txt in blist:
+        entry = [InlineKeyboardButton(b_txt, callback_data = b_txt)]
+        button_list.append(entry)
+
+    done = [InlineKeyboardButton("Done", callback_data = EXIT_MENU)]
+    button_list.append(done)
+    menu_mu = InlineKeyboardMarkup(button_list)
+    return menu_mu
+
+# Hashes the group name into a link code
+def link_hash(grp_name):
+    link_code = "abcdef"
+    return link_code
 
 def direct_to_privatechat(update, context):
-    chat_ID = update.effective_chat.id
+    chat_ID = get_chat_id(update),
     chat_type = update.effective_chat.type
     user = update.effective_user
     firstname = user.first_name
@@ -32,10 +61,7 @@ def direct_to_privatechat(update, context):
         return True
     return False
 
-# Echo sent message
-def echo(update, context):
-    context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
-
+# CORE COMPONENTS
 def start_message(update, context):
     chat_ID = update.effective_chat.id
     user = update.effective_user
@@ -76,9 +102,6 @@ def wipe_freetext_symptoms(uid):
     symptom_report_db[uid]["freetext"] = ""
     return
 
-def get_uid(update):
-    return update.effective_user.username
-
 def report_symtoms_freetext_instr(update,context):
     print("FREETEXT INSTRUCTIONS")
     chat_ID = update.effective_chat.id
@@ -87,7 +110,6 @@ def report_symtoms_freetext_instr(update,context):
         text="Please describe any additional symptoms. If there are none, state 'none' or 'NA'. At the end of it, please type '/done'"
         )
     return FREETEXT_SYMPTOMS
-
 
 report_count = 0
 def report_symptoms_freetext(update, context):
@@ -166,7 +188,6 @@ def confirm_freetext_symptoms(update, context):
 
 
 #### SYMPTOM REPORTING CALLBACKS ####
-
 def _get_symptom_table(uid):
     global symptom_report_db
     if not uid in symptom_report_db:
@@ -211,25 +232,11 @@ def get_listed_symptoms_text(uid):
                 out = out + "\n" + sym
     return out
 
-def build_symptom_markup():
-    symptom_list = symp.get_symptom_list()
-    cs_button_list = []
-    i = 0
-    for s in symptom_list:
-        butt = [InlineKeyboardButton(s, callback_data=s)]
-        cs_button_list.append(butt)
-        i += 1
-    
-    done = [InlineKeyboardButton("Done", callback_data = EXIT_CS_MENU)]
-    cs_button_list.append(done)
-
-    return InlineKeyboardMarkup(cs_button_list)
-
-cs_mu = build_symptom_markup()
+cs_mu = make_menu(symp.get_symptom_list())
 
 def report_common_symptoms(update, context):
     context.bot.send_message(
-        chat_id = update.effective_chat.id,
+        chat_id = get_chat_id(update),
         text="Which of the following symptoms do you have? (You can select multiple):",
         reply_markup = cs_mu
     )
@@ -242,9 +249,9 @@ def handle_symptom_buttonpress(update, context):
     # press_value = cb_query.callback_data
     press_value = cb_query.data
 
-    is_done = (press_value == EXIT_CS_MENU)
+    is_done = (press_value == EXIT_MENU)
     if is_done:
-        done_line = "\n -----END-----"
+        done_line = "\n-----END-----"
         context.bot.edit_message_text(
             chat_id = og_msg.chat_id,
             message_id = og_msg.message_id,
@@ -274,7 +281,6 @@ def create_symptom_entry(uid):
         d["common_symptoms"] = {}
         d["freetext"] = ""
         symptom_report_db[uid] = d
-
 
 def report_status_response(update, context):
     update_text = update.message.text
@@ -312,7 +318,112 @@ def report_status_response(update, context):
 def cancel(update, context):
     pass
 
-# Initalizes the handlers for ths dispatcher
+# ADMIN/GROUP controls
+
+def add_group_for_admin(admin_id, group_name):
+    global ADMINS_INFO
+    if not admin_id in ADMINS_INFO:
+        new_d = {}
+        new_d["groups"] = {}
+        ADMINS_INFO[admin_id] = new_d
+
+    ADMINS_INFO[admin_id]["groups"][group_name] = Group(group_name)
+
+def get_groups_as_list(admin_id):
+    global ADMINS_INFO
+    out = ""
+    if not admin_id in ADMINS_INFO:
+        return out    
+    curr_admin_info = ADMINS_INFO[admin_id]
+    all_groups = curr_admin_info.get("groups", {})
+
+    for grpname in list(all_groups.keys()):
+        if out == "":
+            out = grpname
+        else:
+            out = out + "\n" + grpname
+    return out
+
+admin_menu_butts = ["Create group", "Review groups"]
+def generate_group_link(update,context):    
+    grp_name = update.message.text
+    group_link = link_hash(grp_name)
+    user_id = get_uid(update)
+    add_group_for_admin(user_id, grp_name)
+
+    msg_txt = "Your code for the group '{}' has been generated:\n{}".format(grp_name, group_link)
+    context.bot.send_message(
+        chat_id = get_chat_id(update),
+        text = msg_txt
+    )
+
+    second_msg_text = "Whoever follows this link will be able to join the group"
+    context.bot.send_message(
+        chat_id = get_chat_id(update),
+        text = second_msg_text
+    )
+    return CONVERSATION_END
+
+def review_groups(update, context):
+    admin_id = get_uid(update)
+    grouplist = get_groups_as_list(admin_id)
+    if not grouplist == "":
+        msg_txt = "You are the admin of the following groups:\n" + grouplist
+    else:
+        msg_txt = "You are currently not the admin of any groups. Use /open_manager to create one"
+    context.bot.send_message(
+        chat_id = get_chat_id(update),
+        text = msg_txt
+    )
+
+def open_manager(update, context):
+    admin_menu_mu = make_menu(admin_menu_butts)
+    context.bot.send_message(
+        chat_id = get_chat_id(update),
+        text = "Here are the manager options",
+        reply_markup = admin_menu_mu
+    )
+    return HANDLE_MGR_MENU
+
+def create_group(update,context):
+    context.bot.send_message(
+        chat_id = get_chat_id(update),
+        text = "Send me the name of the group you would like to create"
+    )
+    return RECV_GROUP_NAME
+
+def handle_manager_buttonpress(update,context):
+    user_ID = get_uid(update)
+    cb_query = update.callback_query
+    og_msg = cb_query.message
+    press_value = cb_query.data
+    is_done = (press_value == EXIT_MENU)
+    if is_done:
+        context.bot.edit_message_text(
+            chat_id = og_msg.chat_id,
+            message_id = og_msg.message_id,
+            text = og_msg.text
+            )
+        return CONVERSATION_END
+    if press_value == "Create group":
+        context.bot.edit_message_text(
+            chat_id = og_msg.chat_id,
+            message_id = og_msg.message_id,
+            text = og_msg.text
+            )
+        return create_group(update, context)
+    elif press_value == "Review groups":
+        context.bot.edit_message_text(
+            chat_id = og_msg.chat_id,
+            message_id = og_msg.message_id,
+            text = og_msg.text
+            )
+        return review_groups(update,context)
+    else:
+        print("UNRECOGNIZED BUTTONPRESS")
+
+# CHATBOT INIT
+# Initalizes the handlers for this dispatcher
 def init_handlers(dis):
     global status_response
     start_handler = CommandHandler('start', start_message)
@@ -339,8 +450,23 @@ def init_handlers(dis):
         allow_reentry = True        
         )
 
+    admin_convo = ConversationHandler(
+        entry_points = [
+            CommandHandler('open_manager', open_manager)
+            ],
+        states = {
+            HANDLE_MGR_MENU: [CallbackQueryHandler(handle_manager_buttonpress)],
+            RECV_GROUP_NAME: [MessageHandler(Filters.all, generate_group_link)]
+        },
+        fallbacks = [
+            CommandHandler('cancel', cancel)
+        ],
+        allow_reentry = True        
+    )
+
     dis.add_handler(start_handler)
     dis.add_handler(status_report_handler)
+    dis.add_handler(admin_convo)
 
     return dis
 
