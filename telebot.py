@@ -2,6 +2,7 @@ from telegram.ext import CommandHandler, ConversationHandler, CallbackQueryHandl
 from telegram.ext import CallbackQueryHandler
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from supp_classes import Group, Member
+from local import get_bot_token
 import logging
 
 log = 1
@@ -9,7 +10,7 @@ log = 1
 if log: logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-botToken = '806960355:AAHWm-LvEOI7ahMfL_Ie95DH1sN2nBe505E'
+botToken = get_bot_token()
 
 status_response = ""
 REPORT_STATUS = 1
@@ -25,6 +26,7 @@ RECV_GROUP_NAME = 24
 EXIT_MENU = "EXIT"
 symptom_report_db = {}
 ADMINS_INFO = {}
+PM_TABLE = {}
 
 # GENERAL FUNCTIONS
 def get_uid(update):
@@ -44,30 +46,76 @@ def make_menu(blist):
     menu_mu = InlineKeyboardMarkup(button_list)
     return menu_mu
 
-# Hashes the group name into a link code
-def link_hash(grp_name):
-    link_code = "abcdef"
+# Hashes the group name + admin name into a link code
+def hash_group(admin_id, group_name):
+    # HASHING
+    ap = admin_id
+    return
+
+join_grp_cmd_str = "join_grp"
+# Creates a html link that users can click on to trigger a chat
+def make_group_link(group_code):
+    link_code_base = "https://api.telegram.org/" + botToken + "/" + join_grp_cmd_str
+    link_code = link_code_base + "?group=" + group_code
     return link_code
 
+# Returns True if diverted.
 def direct_to_privatechat(update, context):
-    chat_ID = get_chat_id(update),
+    chat_ID = get_chat_id(update)
     chat_type = update.effective_chat.type
     user = update.effective_user
     firstname = user.first_name
+    user_ID = get_uid(update)
     print("CHAT TYPE", chat_type)
     if not chat_type == "private":
-        msg = "Hi, {}!\nPlease start a private conversation with me to continue".format(firstname) 
-        context.bot.send_message(chat_id=chat_ID, text=msg)
-        return True
+        if is_registered(user_ID):
+            msg = "Hi, {}!\n Please talk to me here so as to avoid spamming groups".format(firstname)
+            private_chat_ID = get_private_chat_id(user_ID)
+            context.bot.send_message(chat_id=private_chat_ID, text=msg)
+            return True
+        else:    
+            msg = "Hi, {}!\nPlease start a private conversation with me to continue".format(firstname) 
+            context.bot.send_message(chat_id=chat_ID, text=msg)
+            return True
     return False
 
-# CORE COMPONENTS
+def add_to_PM_TABLE(userID, chatID):
+    PM_TABLE[userID] = chatID
+    return
+
+def get_private_chat_id(userID):
+    private_chat_id = PM_TABLE.get(userID)
+    return private_chat_id
+
+# Check if this user has started a private chat with bot
+def is_registered(userID):
+    return userID in PM_TABLE
+
+
+# CORE COMPONENT
+def join_group(update, context):
+    print("JOIN GROUP CALLED")
+    print(update)
+    user_ID = get_uid(update)
+    group_name = "<A group>"
+    if not is_registered(user_ID):
+        chat_ID = get_chat_id(update)
+        msg = "Hello! You are not registered"
+    else:
+        chat_ID = get_private_chat_id(user_ID)
+        msg = "Succesffuly joined {}!".format(group_name)
+    context.bot.send_message(chat_id=chat_ID, text=msg)
+
+    return
+
 def start_message(update, context):
     chat_ID = update.effective_chat.id
     user = update.effective_user
     firstname = user.first_name
     diverted = direct_to_privatechat(update, context)
     if not diverted:
+        user_ID = get_uid(update)
+        add_to_PM_TABLE(user_ID, chat_ID)
         msg = "Hello, {}!\nPlease use '/report' to provide your current health status :)".format(firstname) 
     context.bot.send_message(chat_id=chat_ID, text=msg)
 
@@ -319,15 +367,15 @@ def cancel(update, context):
     pass
 
 # ADMIN/GROUP controls
-
 def add_group_for_admin(admin_id, group_name):
     global ADMINS_INFO
     if not admin_id in ADMINS_INFO:
         new_d = {}
         new_d["groups"] = {}
         ADMINS_INFO[admin_id] = new_d
-
-    ADMINS_INFO[admin_id]["groups"][group_name] = Group(group_name)
+    
+    new_group = Group(group_name, admin_id)
+    ADMINS_INFO[admin_id]["groups"][group_name] = new_group
 
 def get_groups_as_list(admin_id):
     global ADMINS_INFO
@@ -347,7 +395,9 @@ def get_groups_as_list(admin_id):
 admin_menu_butts = ["Create group", "Review groups"]
 def generate_group_link(update,context):    
     grp_name = update.message.text
-    group_link = link_hash(grp_name)
+    admin_id = get_uid(update)
+    group_code = hash_group(admin_id, grp_name)
+    group_link = make_group_link(group_code)
     user_id = get_uid(update)
     add_group_for_admin(user_id, grp_name)
 
@@ -429,6 +479,7 @@ def init_handlers(dis):
     start_handler = CommandHandler('start', start_message)
     done_handler = CommandHandler('done', done_reporting_symptoms_freetext)
     symptom_button_handler = CallbackQueryHandler(handle_symptom_buttonpress)
+    join_group_handler = CommandHandler(join_grp_cmd_str, join_group)
 
     # 
     status_report_handler = ConversationHandler(
@@ -467,6 +518,7 @@ def init_handlers(dis):
     dis.add_handler(start_handler)
     dis.add_handler(status_report_handler)
     dis.add_handler(admin_convo)
+    dis.add_handler(join_group_handler)
 
     return dis
 
